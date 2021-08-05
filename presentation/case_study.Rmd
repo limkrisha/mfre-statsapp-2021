@@ -13,6 +13,8 @@ pacman::p_load(tidyverse, readxl, googlesheets4, readstata13, magrittr, cansim, 
 
 # Introduction
 
+Test test 
+
 Carbon dioxide is one of the main greenhouse gases emitted by human activities. As the concentration of greenhouse gases changed over time because of human activities, the world also has experienced rising global temperatures. 
 
 In this case study, we explore the factors that contribute to rising carbon emissions over time. In particular, we will look at 3 factors: GDP per capita, energy use per capita, and the political climate of a country.
