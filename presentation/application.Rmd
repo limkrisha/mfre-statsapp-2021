@@ -1,0 +1,242 @@
+---
+title: "Math and Stats Review: Applications"
+author: "Summer 2021"
+output:
+  html_document:
+    toc: TRUE
+    toc_float: TRUE
+    theme: lumen
+---
+
+```{r pacman_run, echo = FALSE}
+pacman::p_load(tidyverse, magrittr, stats, broom, modelsummary, here)
+```
+
+The content of this session is adapted from [Open Case Studies](https://www.opencasestudies.org/ocs-bp-co2-emissions/) and Penn State's Stat 501 [notes](https://online.stat.psu.edu/stat501/).
+
+# Introduction
+
+Carbon dioxide is one of the main greenhouse gases emitted by human activities. As the concentration of greenhouse gases changed over time because of human activities, the world also has experienced rising global temperatures. In this case study, we explore the factors that contribute to rising carbon emissions over time.
+
+Economists have hypothesized that there is an inverse U-shaped relationship between environmental degradation and income, which they call as the Environmental Kuznets Curve (EKC). You can read [here](https://www.sciencedirect.com/topics/earth-and-planetary-sciences/environmental-kuznets-curve) for more background on the EKC. In summary, the EKC says that at lower levels of income, economic growth leads to higher levels of pollution and lower environmental quality. After a certain threshold, this trend reverses, and economic growth leads to higher environmental quality. 
+
+In this session, we test the EKC hypothesis. We also check how the political affairs of countries affect level of emissions.
+
+# Data
+
+Let's first load the packages we will use in this session.
+
+```{r loadpackages}
+pacman::p_load(tidyverse, magrittr, stats, broom, modelsummary, here)
+```
+
+Next, let's load the data we cleaned from the R bootcamp. 
+
+```{r load_data, message = FALSE}
+data <-read_csv(here("data", "data_for_application.csv"))
+
+glimpse(data)
+
+set.seed(321)
+data %>% slice_sample(n = 5)
+```
+
+We have the following data from `r length(unique(data$country))` countries from `r min(data$year)`-`r max(data$year)`. 
+
+  * `emissions` is carbon dioxide emissions at metric tons per person downloaded from [Gapminder](https://www.gapminder.org/data/)
+  * `gdp` is real GDP per capita downloaded from the [World Bank](https://data.worldbank.org/indicator/NY.GDP.PCAP.KD)
+  * `democracy` is an index that measures the extent that the ideal of liberal democracy is achieved. More info on these political variables [here](https://www.v-dem.net/en/data/data/v-dem-dataset-v111/).
+  * `regime` represents 4 possible regimes -- closed autocracy, electoral autocracy, electoral democracy, and liberal democracy. 
+  * `region` represents the geographical region a country belongs to
+
+```{r data_info, eval = F}
+# to know unique number of countries we have
+length(unique(data$country))
+
+# to know earliest year we have data of
+min(data$year)
+
+# to know latest year we have data of
+max(data$year)
+
+# to know the names of the variables
+names(data)
+```
+
+# Descriptive statistics
+
+The `datasummary_skim()` function of the `{modelsummary}` package gives us an overview of our data and allows us to assess the number of missing values in each variable. The output also shows basic descriptive statistics and even a small histogram. 
+
+```{r sumstats, warning = FALSE}
+datasummary_skim(data, title = "Descriptive Statistics", output = "flextable")
+```
+
+# Basic data visualization
+
+Let's start by plotting carbon emissions over time. The code below takes a summation of all the emissions by year, and then plots it with a line graph. The graph shows that global carbon emissions have increased exponentially since 1990. 
+
+```{r dataviz_emissions_time, message = FALSE, warning = FALSE}
+data %>% 
+  group_by(year) %>%
+  summarize(Emissions = sum(emissions, na.rm = T)) %>%
+  ggplot(aes(x = year, y = Emissions)) +
+  geom_line(size = 1.5) +
+  labs(title = "World" ~CO[2]~ "Emissions per year (1991- 2014)",
+       caption = "Limited to reporting countries",
+       y = "Emissions (Metric Tonnes)") +
+  theme_classic()
+```
+
+Let's take the average of each country's emissions and GDP over time and plot it using a histogram to see the distribution of these two variables.
+
+```{r summation, warning = FALSE, message = FALSE}
+data <- data %>% 
+  group_by(country) %>%
+  mutate(avg_emissions = mean(emissions, na.rm = T),
+         avg_gdp = mean(gdp, na.rm = T)) 
+
+ggplot(data, aes(log(avg_gdp))) + 
+  geom_histogram() + 
+  labs(title = "Histogram of Log (Average) Income",
+       x = "Log (avarage) income", y = "Count") + 
+  theme_classic()
+
+ggplot(data, aes(log(avg_emissions))) + 
+  geom_histogram() + 
+  labs(title = "Histogram of Log (Average) Emissions",
+       x = "Log (avarage) emissions", y = "Count") + 
+  theme_classic()
+```
+
+Now let's use a scatterplot to visualize the relationship between GDP and emissions. 
+
+```{r scatterplot, warning = FALSE, message = FALSE}
+p <- data %>% 
+  ggplot(aes(log(avg_gdp), log(avg_emissions))) +
+  geom_point() +
+  labs(title = "Relationship between Emissions and GDP",
+              y = "Log GDP per capita", x = "Log CO2 per capita") + 
+  theme_classic()
+
+p
+```
+
+# Correlation
+
+The Pearson correlation coefficient can be calculated as follows.
+
+```{r corr}
+cor <- cor.test(data$emissions, data$gdp, method = "pearson")
+cor
+# str(cor)
+```
+
+The correlation coefficient of `r round(cor$estimate,2)` with a p-value of `r round(cor$p.value,2)` means that the there is a positive relationship between emissions per capita and GDP per capita but the relationship is not as strong (not close to 1).
+
+# Simple Linear Model
+
+Our graph earlier shows that there appears to be a relationship between emissions and GDP. To formally test this relationship, let's first take a look at a simple linear model. In this case, $emissions_i$ is our outcome or dependent variable, and $GDP$ is our explanatory or independent variable. The equation is an example of a statistical relationship because you might expect that emissions fall as GDP increases, but not perfectly. 
+
+$$ 
+emissions_i = b_0 + b_1 GDP_i + \varepsilon_i 
+$$
+
+To run an OLS regression, we use the `lm()` function of the `stats` package. The syntax is `lm(y ~ x1 + x2 + x3 + ...)`. To get all the details of the regression, we use the `summary()` function. The output is similar to Stata's regression output. To extract elements of the regression results, you can use the command `str(summary(slm))`
+
+```{r slm}
+slm <- lm(emissions ~ gdp, data = data)
+summary(slm)
+```
+
+The intercept $b_0$ tells us that when GDP = 0 the predicted value for emissions per capita is `r round(summary(slm)$coefficients[1],2)`. This prediction is not meaningful for our case study because this value is beyond the scope of the model, i.e. we don't have an observation with GDP = 0. 
+
+The coefficient $b_1$ tells us that we predict the mean emissions per capita to increase by `r round(summary(slm)$coefficients[2],2)` for every dollar increase in GDP per capita. Since its p-value = `r round(summary(slm)$coefficients[2,4], 2)` and is < 0.05, we can reject the null hypothesis that $b_1$ is equal to zero (no effect). 
+
+# Measures of Fit
+
+The $r^2$ (coefficient of determination) can be interpreted as as `r round((summary(slm)$r.squared *100), 2)` percent of the variation in emissions is explained by the variation in GDP per capita. 
+
+The residual standard error of `r summary(slm)$sigma` means that on average, the deviation of the actual emissions and the regression line is `r round(summary(slm)$sigma, 1)` metric tonnes. 
+
+# Hypothesis tests
+
+## t-test
+
+Let's look at the results of `slm` again. 
+```{r ttest}
+summary(slm)$coefficients 
+```
+
+Let's now conduct a two-sided hypothesis test concerning the slope coefficient. Specifically we test $H_0: \beta_1 = 0$ and  $H_1: \beta_1 \neq 0$, we have 
+
+$$
+t^{gdp} = \frac{5.27255 - 0}{0.6279173} = 8.397
+$$
+
+This number tells us that we reject the null hypothesis at 5% significance level because $\rvert t^{gdp}\rvert > 1.96$ and falls into the rejection region, as p-value = `r summary(slm)$coefficients[2,4]` $< 0.05$. We conclude that the coefficient is statistically significant from zero. 
+
+## F-test
+
+We can test whether there is any relationship between our explanatory and predictor variables. Similar to the t-test, the null hypothesis is that there is no relationship between the two, and the alternative hypothesis is that there is some linear relationship between the two variables. We need a p-value of less than 0.05 to reject the null hypothesis. The p-value of our F-test can be seen at the bottom of the summary of regression results. Since the p-value is very small, we reject the null hypothesis that there is no relationship between the two variables. As we start to add more variables to our model, the t-test and F-test may yield different results. 
+
+# Multiple linear regression 
+
+A multiple linear model is very similar to a simple linear model; we just add more independent variables to our model. In our example, let's first add the squared term of GDP to test whether there is indeed an inverse U-shape relationship between income and emissions. Following the literature, we also take the natural logarithm of the emissions and GDP variables Taking their natural logs also allows for easier interpretation of results. 
+
+The statistical relationship we want to investigate can be defined as:
+
+$$
+ln emissions_i = b_0 + b_1 ln GDP_i + b_2(lnGDP_i)^2 + \varepsilon_i
+$$
+
+
+```{r reg2}
+data <- data %>%
+  mutate(log_gdp_sq = log(gdp) * log(gdp))
+
+mlr <- lm(log(emissions) ~ log(gdp) + log_gdp_sq, data = data)
+summary(mlr)
+```
+
+Similar to the simple linear model, we can interpret each $\beta$ parameter as follows: For every one unit change in the explanatory variable, the estimated change in the mean emissions is $b_i$. However, because we are using natural logs for both the independent (emissions) and dependent (GDP) variables, we can interpret it as elasticity (more info [here](https://stats.idre.ucla.edu/sas/faq/how-can-i-interpret-log-transformed-variables-in-terms-of-percent-change-in-linear-regression/)), such that $b_i$ represents the percent change in emissions as the explanatory variable increases by one percent. 
+
+The results show that a one percent increase in GDP increases emissions by `r round(summary(mlr)$coefficients[2], 2)` percent. Because the coefficient for $(lnGDP_i)^2$ is negative, we can say that after a certain income threshold, emissions decrease. The p-values for the t-tests also indicate that the slope parameter for the income and squared income terms are significantly different from 0, respectively. 
+
+```{r scipen1, include = F}
+options(scipen = 999) 
+```
+We can also calculate this "turning point" level of income. In [Stern (2004)](https://www.sciencedirect.com/topics/earth-and-planetary-sciences/environmental-kuznets-curve), the equation is $\tau = exp[-\beta_1 / 2(\beta_2)]$. Doing the calculation reveals that until a country reaches an income level of `r round(exp(-mlr$coefficients[2] / (2*mlr$coefficients[3])), 0)`, higher levels of income leads to higher carbon emissions. 
+
+```{r scipen2, include = F}
+options(scipen = 0) 
+```
+
+```{r calc}
+exp(-mlr$coefficients[2] / (2*mlr$coefficients[3]))
+```
+
+Let's see what happens to our model when we add in the regime variable in the model. We will now estimate this relationship:
+
+$$
+ln emissions_i = b_0 + b_1 ln GDP_i + b_2(lnGDP_i)^2 + b_3regime + \varepsilon_i
+$$
+```{r mlr2}
+mlr_pol <- lm(log(emissions) ~ log(gdp) + log_gdp_sq + regime, data = data)
+summary(mlr_pol)
+```
+
+Thee results also show that there are 3 coefficients for the `regime` variable. When you put a categorical variable in a linear regression, you get a different intercept for each level of that variable. In other words, countries in our data are categorized into 4 political regimes, and our model specifies the same slope for how emissions change with GDP, but with different starting point or intercept based on the country's political regime. Since the regime variable is a categorical variable, R will automatically drop one level. We interpret the results in reference to that category.  
+
+```{r scipen3, include = F}
+options(scipen = 999) 
+```
+
+If we recalculate the income threshold, we now get `r round(exp(-mlr_pol$coefficients[2]/(2*mlr_pol$coefficients[3])), 0)`. 
+
+```{r scipen4, include = F}
+options(scipen = 0) 
+```
+
+```{r calc2}
+exp(-mlr_pol$coefficients[2] / (2*mlr_pol$coefficients[3]))
+```
